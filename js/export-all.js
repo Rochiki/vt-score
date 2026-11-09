@@ -60,8 +60,8 @@ async function exportAll(pid) {
       const LEFTOR = { left: { style: 'thick', color: { argb: OR } } };
       const secRow = (row, text) => band(row, 1, NC, text, { font: { bold: true, size: 11 }, fill: LIGHT, h: 22, border: LEFTOR, al: { indent: 1 } });
       const est = (t, per) => Math.max(18, 14.5 * Math.ceil(String(t).length / per) + 4);
-      band(1, 1, NC, 'VEHICLE TELEMATIC SCORE AND REPORT', { font: { size: 20, bold: true, color: { argb: WH } }, fill: BLACK, h: 38, al: { indent: 1 } });
-      band(2, 1, NC, 'QSHE Department · PT Hexindo Adiperkasa Tbk · skoring berkendara berimbang travel load', { font: { size: 10, color: { argb: OR } }, fill: BLACK, h: 20, al: { indent: 1 } });
+      band(1, 1, NC, '', { fill: 'FF0B0B0B', h: 252 });
+      band(2, 1, NC, '', { fill: OR, h: 4 });
       band(3, 1, NC, stamp, { font: { size: 9, italic: true, color: { argb: 'FF595959' } }, fill: LIGHT, h: 18, border: LEFTOR, al: { indent: 1 } });
       secRow(5, 'RINGKASAN · ' + p.lbl.toUpperCase() + ' (' + VT.dtxt(p.start) + ' – ' + VT.dtxt(p.end) + ') · NASIONAL');
       const WHB = { right: { style: 'thick', color: { argb: WH } } };
@@ -82,18 +82,8 @@ async function exportAll(pid) {
         ['NIGHT DRIVING (JAM)', k.nh, VT.fx(k.nhPct, 1) + '% jam mengemudi · mulai ' + String(Pp.NSTART).padStart(2, '0') + ':00', '#,##0'],
         ['HARSH BRAKING / 1.000 KM', k.brk, 'periode lalu ' + (k.brkPrev == null ? '–' : VT.fx(k.brkPrev, 2)), '0.00']];
       cards.forEach((c, i) => card(6 + Math.floor(i / 4) * 4, 1 + (i % 4) * 3, c[0], c[1], c[2], c[3], c[4]));
-      let r = 14; secRow(r, 'EXECUTIVE REPORT · ' + p.lbl);
-      const line = (t, o) => { r++; band(r, 1, NC, t, Object.assign({ h: est(t, 150), al: { indent: 1, vertical: 'top' } }, o || {})); };
-      const block = (ex, lang) => {
-        line(lang === 'id' ? 'BAHASA INDONESIA' : 'ENGLISH', { font: { bold: true, size: 9, color: { argb: 'FFC2410C' } }, h: 18 });
-        line(ex.headline, { font: { bold: true, size: 11 }, h: est(ex.headline, 125) });
-        ex.insights.forEach(x => line('• ' + x));
-        ex.risks.forEach(x => line((lang === 'id' ? '⚠ Risiko: ' : '⚠ Risk: ') + x));
-        ex.actions.forEach(a => line('→ ' + a[0] + '   [' + (lang === 'id' ? 'PIC: ' : 'Owner: ') + a[1] + ' · ' + a[2] + ']'));
-        line(ex.target, { font: { italic: true, size: 10, color: { argb: 'FF3A3A3A' } } });
-      };
-      block(exI, 'id'); block(exE, 'en');
-      r += 2; dash.getRow(r - 1).addPageBreak(); secRow(r, 'GRAFIK');
+      let r = 13;
+      r += 2; secRow(r, 'GRAFIK');
       r++; band(r, 1, 6, 'Tren skor rata-rata per periode (garis oranye = baru, abu putus-putus = lama)', { font: { bold: true, size: 9 }, h: 18, al: { indent: 1 } });
       band(r, 7, 12, 'Sebaran grade · periode terpilih', { font: { bold: true, size: 9 }, al: { indent: 1 } });
       const gy = { grid: { color: '#e5e5e5' }, border: { display: false } }, gx = { grid: { display: false } };
@@ -119,6 +109,40 @@ async function exportAll(pid) {
         { label: 'Skor metode lama', data: k.bands.map(b => b.old || null), backgroundColor: '#bdbdbd', borderRadius: 3, maxBarThickness: 40 },
         { label: 'Skor baru', data: k.bands.map(b => b.fin || null), backgroundColor: '#f7941d', borderRadius: 3, maxBarThickness: 40 }] },
         options: { scales: { y: Object.assign({ min: 60, max: 100 }, gy), x: gx }, plugins: { legend: { position: 'bottom' } } } };
+      const heroPng = async () => {
+        const W = 1110, H = 335, DPR = 2; const cv = document.createElement('canvas'); cv.width = W * DPR; cv.height = H * DPR; const x = cv.getContext('2d'); x.scale(DPR, DPR);
+        try { await Promise.all(['700 46px Poppins', '600 12px Barlow', '400 16px Barlow'].map(f => document.fonts.load(f))); } catch (e) {}
+        const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('assets/hero.jpg tidak termuat')); i.src = 'assets/hero.jpg'; });
+        x.fillStyle = '#0b0b0b'; x.fillRect(0, 0, W, H);
+        const sc = Math.max(W / img.width, H / img.height), dw = img.width * sc, dh = img.height * sc; x.drawImage(img, W - dw, (H - dh) / 2, dw, dh);
+        const g = x.createLinearGradient(0, 0, W, 0); g.addColorStop(0, 'rgba(10,10,10,.96)'); g.addColorStop(.36, 'rgba(10,10,10,.82)'); g.addColorStop(.62, 'rgba(10,10,10,0)'); x.fillStyle = g; x.fillRect(0, 0, W, H);
+        const rr = (X, Y, w, h, r_) => { x.beginPath(); x.moveTo(X + r_, Y); x.arcTo(X + w, Y, X + w, Y + h, r_); x.arcTo(X + w, Y + h, X, Y + h, r_); x.arcTo(X, Y + h, X, Y, r_); x.arcTo(X, Y, X + w, Y, r_); x.closePath(); };
+        const dot = (X, Y) => { x.fillStyle = '#f7941d'; x.beginPath(); x.arc(X, Y, 3.5, 0, 7); x.fill(); };
+        const SANS = "'Segoe UI', Barlow, system-ui, sans-serif";
+        x.textBaseline = 'middle';
+        const pill = 'QSHE DEPARTMENT · PT HEXINDO ADIPERKASA TBK' + (p.fy ? ' · FY' + p.fy : '');
+        x.font = '600 12px ' + SANS; const pw = x.measureText(pill).width + 14 * 2 + 15;
+        rr(40, 30, pw, 26, 13); x.strokeStyle = '#f7941d'; x.lineWidth = 1.5; x.stroke(); dot(40 + 14 + 3.5, 43); x.fillStyle = '#fff'; x.fillText(pill, 40 + 14 + 15, 43.5);
+        x.textBaseline = 'alphabetic'; x.fillStyle = '#fff'; x.font = '700 46px Poppins, ' + SANS; x.fillText('Vehicle Telematic', 40, 118);
+        x.fillText('Score and Report', 40, 172); const w1 = x.measureText('Score and Report').width; x.fillStyle = '#f7941d'; x.fillText('.', 40 + w1, 172);
+        x.fillStyle = '#d8d8d8'; x.font = '400 16px ' + SANS; x.fillText('Adil untuk travel load tinggi. Tegas untuk pelanggaran berulang.', 40, 204);
+        let cx = 40; ['Travel load 5 band', 'Berulang 2 minggu', 'Insiden & pemimpin', 'Notifikasi atasan'].forEach(t => {
+          x.font = '400 13px ' + SANS; const w = x.measureText(t).width + 13 * 2 + 15; rr(cx, 218, w, 28, 14); x.fillStyle = 'rgba(255,255,255,.07)'; x.fill(); x.strokeStyle = 'rgba(255,255,255,.14)'; x.lineWidth = 1; x.stroke();
+          dot(cx + 13 + 3.5, 232); x.fillStyle = '#fff'; x.textBaseline = 'middle'; x.fillText(t, cx + 13 + 15, 232.5); x.textBaseline = 'alphabetic'; cx += w + 8; });
+        const first = res.periods[0], mon = d => VT.MON[VT.dayToDate(d).getUTCMonth()];
+        x.fillStyle = '#8a8a8a'; x.font = '400 12px ' + SANS; x.fillText('Data Vehicle Telematics ' + mon(first.start) + ' ' + VT.dayToDate(first.start).getUTCFullYear() + '–' + mon(p.end) + ' ' + VT.dayToDate(p.end).getUTCFullYear() + ' · skoring berimbang travel load', 40, 296);
+        const night = String(Pp.NSTART).padStart(2, '0') + ':00 – ' + String((Pp.NEND + 23) % 24).padStart(2, '0') + ':59';
+        const co = (t1, t2, left, right, topPct) => {
+          x.font = '700 12.5px ' + SANS; const w1_ = x.measureText(t1).width; x.font = '400 11.5px ' + SANS; const w2_ = x.measureText(t2).width, w = Math.max(w1_, w2_);
+          const X = left != null ? W * left : W - W * right - w, Y = H * topPct;
+          x.fillStyle = '#fff'; x.font = '700 12.5px ' + SANS; x.fillText(t1, X, Y + 12); x.fillStyle = '#cfcfcf'; x.font = '400 11.5px ' + SANS; x.fillText(t2, X, Y + 28);
+          x.strokeStyle = '#f7941d'; x.lineWidth = 1; x.beginPath(); x.moveTo(X, Y + 34); x.lineTo(X + w, Y + 34); x.stroke(); };
+        co('TRAVEL LOAD', 'dibanding band km sejenis', .484, null, .10); co('NIGHT DRIVING', 'mulai ' + night, .697, null, .07);
+        co('OVERSPEED', 'toleransi ≤' + Pp.OSTOL + ' count/trip', null, .012, .21); co('HARSH BRAKING', 'laju per 1.000 km', null, .012, .82);
+        return cv.toDataURL('image/png');
+      };
+      try { const hid = wb.addImage({ base64: await heroPng(), extension: 'png' }); dash.addImage(hid, { tl: { col: 0, row: 0 }, ext: { width: 1110, height: 335 } }); }
+      catch (e) { console.error('[VT] hero Excel', e); dashFail.push('hero'); band(1, 1, NC, 'VEHICLE TELEMATIC SCORE AND REPORT', { font: { size: 22, bold: true, color: { argb: WH } }, fill: 'FF0B0B0B', h: 252, al: { indent: 2 } }); }
       const place = async (cfg, col, row, name) => {
         try { const id = wb.addImage({ base64: await png(cfg), extension: 'png' }); dash.addImage(id, { tl: { col, row }, ext: { width: 545, height: 262 } }); }
         catch (e) { console.error('[VT] grafik Excel ' + name, e); dashFail.push(name); band(row + 1, col + 1, col + 6, '(grafik "' + name + '" tidak dapat disisipkan: ' + e.message + ')', { font: { italic: true, color: { argb: 'FFC2410C' } } }); }
@@ -158,6 +182,17 @@ async function exportAll(pid) {
         cell(r, 7, 8, b ? b.band : '', ctr); cell(r, 9, 9, b ? b.n : '', ctr); cell(r, 10, 10, b && b.old ? b.old : '', { fmt: '0.0' }); cell(r, 11, 11, b && b.fin ? b.fin : '', { fmt: '0.0' });
         cell(r, 12, 12, b && b.fin && b.old ? b.fin - b.old : '', { fmt: '+0.0;-0.0;0.0' });
       }
+      r += 2; secRow(r, 'EXECUTIVE REPORT · ' + p.lbl);
+      const line = (t, o) => { r++; band(r, 1, NC, t, Object.assign({ h: est(t, 150), al: { indent: 1, vertical: 'top' } }, o || {})); };
+      const block = (ex, lang) => {
+        line(lang === 'id' ? 'BAHASA INDONESIA' : 'ENGLISH', { font: { bold: true, size: 9, color: { argb: 'FFC2410C' } }, h: 18 });
+        line(ex.headline, { font: { bold: true, size: 11 }, h: est(ex.headline, 125) });
+        ex.insights.forEach(x => line('• ' + x));
+        ex.risks.forEach(x => line((lang === 'id' ? '⚠ Risiko: ' : '⚠ Risk: ') + x));
+        ex.actions.forEach(a => line('→ ' + a[0] + '   [' + (lang === 'id' ? 'PIC: ' : 'Owner: ') + a[1] + ' · ' + a[2] + ']'));
+        line(ex.target, { font: { italic: true, size: 10, color: { argb: 'FF3A3A3A' } } });
+      };
+      block(exI, 'id'); block(exE, 'en');
       // status & tindak lanjut (dengan tautan ke sheet)
       r += 2; secRow(r, 'STATUS DATA & TINDAK LANJUT');
       const ntsLast = VT.buildNotifications(res, res.lastPid, Pp, master, res.tripsByKey);
