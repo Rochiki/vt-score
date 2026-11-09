@@ -548,7 +548,7 @@ PAGES.data = {
   title: 'Data & cadangan', render(v) {
     v.innerHTML = head('Data & cadangan', 'Semua data ada di browser perangkat ini. Cadangkan untuk berpindah perangkat atau berbagi dengan rekan QSHE.') + `<div class="pad">
       <div class="grid2"><div class="card"><h4 style="margin-top:0">Cadangan</h4>
-        <div class="tools"><button class="btn pri" id="bkIn">Unduh cadangan input (kecil)</button><button class="btn" id="bkAll">Unduh cadangan lengkap + data trip</button></div>
+        <div class="tools"><button class="btn pri" id="bkIn">Unduh cadangan input (kecil)</button><button class="btn" id="bkAll">Unduh cadangan lengkap + data trip</button><button class="btn dark" id="xAll" ${S.res ? '' : 'disabled'}>Unduh semua laporan (Excel)</button></div>
         <p class="note">Cadangan input = faktor koreksi, faktor lain, master karyawan, parameter, data GA, log. Cadangan lengkap juga memuat trip mentah (besar). API key AI tidak ikut. Pulihkan lewat menu Unggah data (file .json).</p></div>
       <div class="card"><h4 style="margin-top:0">Ringkasan penyimpanan</h4><div id="stg" class="small">memeriksa…</div>
         <div class="tools"><button class="btn danger" id="clr">Hapus semua data di perangkat ini</button></div></div></div>
@@ -557,6 +557,7 @@ PAGES.data = {
     const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
     $('#bkIn').onclick = async () => download(new Blob([JSON.stringify(await pack(false))], { type: 'application/json' }), 'vt-score_cadangan_input_' + stamp() + '.json');
     $('#bkAll').onclick = async () => { busy('Menyiapkan cadangan lengkap…'); try { download(new Blob([JSON.stringify(await pack(true))], { type: 'application/json' }), 'vt-score_cadangan_lengkap_' + stamp() + '.json'); } finally { busy(false); } };
+    $('#xAll').onclick = () => exportAll(S.ui.pid || (S.res && S.res.lastPid));
     $('#clr').onclick = async () => { if (!(await confirmBox('Hapus SEMUA data (trip, input, master, GA, pengaturan) dari perangkat ini? Pastikan sudah mengunduh cadangan.', 'Hapus semua'))) return; await DB.clearAll(); location.reload(); };
     (async () => {
       const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;

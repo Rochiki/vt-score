@@ -118,16 +118,26 @@ async function exportXlsx(name, sheets) {
 /* ------------------------------------------------------------ chart helper */
 function chart(id, cfg) {
   const cv = document.getElementById(id); if (!cv) return null;
-  if (S.charts[id]) { S.charts[id].destroy(); }
-  S.charts[id] = new Chart(cv, cfg); return S.charts[id];
+  const box = cv.parentElement;
+  if (S.charts[id]) { try { S.charts[id].destroy(); } catch (e) { /* */ } delete S.charts[id]; }
+  const fail = msg => { const p = document.createElement('p'); p.className = 'note chart-err'; p.textContent = msg; box.querySelectorAll('.chart-err').forEach(x => x.remove()); box.appendChild(p); };
+  if (typeof Chart === 'undefined') { fail('Grafik tidak bisa dimuat (pustaka grafik gagal diunduh). Muat ulang halaman dengan Ctrl+F5.'); return null; }
+  try {
+    cfg.options = cfg.options || {}; cfg.options.animation = false; cfg.options.responsiveAnimationDuration = 0;
+    const c = new Chart(cv, cfg); S.charts[id] = c;
+    c.draw(); // gambar langsung, tidak menunggu frame animasi browser
+    return c;
+  } catch (e) { console.error('[VT] grafik ' + id, e); fail('Grafik gagal digambar: ' + e.message); return null; }
 }
+// gambar ulang grafik bila tab/jendela baru terlihat atau ukurannya berubah
+document.addEventListener('visibilitychange', () => { if (!document.hidden) Object.values(S.charts).forEach(c => { try { c.resize(); c.update('none'); } catch (e) { /* */ } }); });
 function chartsInit() {
   if (typeof Chart === 'undefined') return;
   Chart.defaults.font.family = "'Segoe UI', 'Barlow', system-ui, sans-serif";
   Chart.defaults.font.size = 12; Chart.defaults.color = '#3a3a3a';
   Chart.defaults.plugins.legend.labels.boxWidth = 14;
   Chart.defaults.maintainAspectRatio = false;
-  Chart.defaults.animation = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : { duration: 350 };
+  Chart.defaults.animation = false;
   Chart.defaults.plugins.tooltip.callbacks.label = ctx => (ctx.dataset.label ? ctx.dataset.label + ': ' : '') + (ctx.parsed.y == null ? '–' : fx(ctx.parsed.y, Math.abs(ctx.parsed.y) < 10 ? 2 : 1));
 }
 const gridY = { grid: { color: '#e5e5e5' }, border: { display: false } };
@@ -268,16 +278,20 @@ PAGES.dashboard = {
     const cabs = cabList();
     h += `<div class="filters noprint"><label for="fPer">PERIODE</label><select id="fPer">${periodOptions(S.ui.pid === S.res.lastPid ? null : S.ui.pid, true)}</select>
       <label for="fCab">CABANG</label><select id="fCab"><option>Semua cabang</option>${cabs.map(c => `<option ${c === S.ui.cab ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
-      <span class="hint" id="fHint"></span></div><div class="pad" id="dash"></div>
+      <span class="hint" id="fHint"></span><span class="sp" style="flex:1"></span><button class="btn pri" id="dlAll" type="button">⬇ Unduh semua (Excel)</button></div><div class="pad" id="dash"></div>
       <footer class="f">Vehicle Telematic Score and Report · QSHE Department PT Hexindo Adiperkasa Tbk · model v2.0 (sama dengan workbook Excel) · ilustrasi kendaraan generik · aplikasi v${VT.VERSION}</footer>`;
     v.innerHTML = h;
     $('#fPer').value = S.ui.pid === S.res.lastPid ? 'last' : String(S.ui.pid);
     $('#fPer').onchange = e => { S.ui.pid = e.target.value === 'last' ? S.res.lastPid : +e.target.value; renderSide(); drawDash(); };
     $('#fCab').onchange = e => { S.ui.cab = e.target.value; renderSide(); drawDash(); };
+    $('#dlAll').onclick = () => exportAll(S.ui.pid);
     drawDash();
   }
 };
 function drawDash() {
+  try { drawDash0(); } catch (e) { console.error(e); toast('Sebagian dashboard gagal ditampilkan: ' + e.message, 8000); }
+}
+function drawDash0() {
   const pid = S.ui.pid, cab = S.ui.cab, p = per(pid), Pp = P();
   const k = VT.kpis(S.res, pid, cab);
   $('#fHint').textContent = '▾ pilih di kotak oranye · ' + f0(k.n) + ' pengemudi aktif';
