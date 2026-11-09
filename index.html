@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vehicle Telematic Score and Report</title>
+<meta name="description" content="QSHE Department – skoring berkendara berimbang travel load dari data Vehicle Telematics (Cartrack): dashboard, notifikasi atasan, faktor koreksi, laporan bilingual.">
+<meta name="theme-color" content="#111111">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VT Score">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="offline" id="offline" hidden>Mode offline — aplikasi tetap berjalan dengan data di perangkat ini.</div>
+<div class="app">
+  <nav class="side" id="side" aria-label="Menu utama"></nav>
+  <div class="main">
+    <div class="topbar"><button type="button" id="menuBtn" aria-label="Buka menu">☰ Menu</button><b>Vehicle Telematic <i>Score &amp; Report</i></b></div>
+    <main class="view" id="view" tabindex="-1"></main>
+  </div>
+</div>
+<noscript><p style="padding:20px">Aktifkan JavaScript untuk memakai aplikasi ini.</p></noscript>
+<script src="lib/chart.umd.js"></script>
+<script src="js/xlsx-stream.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/db.js"></script>
+<script src="js/report.js"></script>
+<script src="js/app.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/pages1.js"></script>
+<script src="js/pages2.js"></script>
+</body>
+</html>
