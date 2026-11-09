@@ -278,7 +278,7 @@ PAGES.dashboard = {
     const cabs = cabList();
     h += `<div class="filters noprint"><label for="fPer">PERIODE</label><select id="fPer">${periodOptions(S.ui.pid === S.res.lastPid ? null : S.ui.pid, true)}</select>
       <label for="fCab">CABANG</label><select id="fCab"><option>Semua cabang</option>${cabs.map(c => `<option ${c === S.ui.cab ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
-      <span class="hint" id="fHint"></span><span class="sp" style="flex:1"></span><button class="btn pri" id="dlAll" type="button">⬇ Unduh semua (Excel)</button></div><div class="pad" id="dash"></div>
+      <span class="hint" id="fHint"></span><span class="sp" style="flex:1"></span><button class="btn pri" id="dlAll" type="button" title="Satu file Excel: dashboard di halaman depan + semua menu">⬇ Unduh semua (Excel)</button></div><div class="pad" id="dash"></div>
       <footer class="f">Vehicle Telematic Score and Report · QSHE Department PT Hexindo Adiperkasa Tbk · model v2.0 (sama dengan workbook Excel) · ilustrasi kendaraan generik · aplikasi v${VT.VERSION}</footer>`;
     v.innerHTML = h;
     $('#fPer').value = S.ui.pid === S.res.lastPid ? 'last' : String(S.ui.pid);

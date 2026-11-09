@@ -77,3 +77,7 @@ Settings → Pages → Source **Deploy from a branch**, Branch **main** / **(roo
 | `lib/` | Chart.js, ExcelJS, docx (lisensi di `licenses/`) |
 
 Pustaka pihak ketiga: Chart.js (MIT), ExcelJS (MIT), docx (MIT), font Poppins & Barlow (SIL OFL 1.1).
+
+## v1.2 — Unduh semua (Excel) / Download everything (Excel)
+**ID:** Tombol "⬇ Unduh semua (Excel)" di Dashboard menghasilkan satu file Excel: sheet pertama adalah Dashboard (KPI, executive report ID/EN, 4 grafik, 10 prioritas coaching, cabang), lalu "Daftar isi" dan satu sheet untuk setiap menu sesuai urutan sidebar.
+**EN:** The "⬇ Unduh semua (Excel)" button on the Dashboard produces a single Excel file: the first sheet is the Dashboard (KPIs, ID/EN executive report, 4 charts, top-10 coaching list, branches), followed by a table of contents and one sheet per sidebar menu, in sidebar order.

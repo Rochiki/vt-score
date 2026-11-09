@@ -9,7 +9,7 @@
   'use strict';
   const X = root.XLSXStream || (typeof require !== 'undefined' ? require('./xlsx-stream.js') : null);
   const VT = {};
-  VT.VERSION = '1.0.0';
+  VT.VERSION = '1.2.0';
 
   /* ------------------------------------------------------------ parameter */
   VT.LAB = ['L1', 'L2', 'L3', 'L4', 'L5'];
