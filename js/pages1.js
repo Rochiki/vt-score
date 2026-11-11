@@ -10,6 +10,7 @@ PAGES.panduan = {
     <ul><li>Unggah file mentah Cartrack ("Data Score Behavior", .xlsx atau .csv). Aplikasi membaca sheet <b>Data</b>, memakai trip <b>Driving</b> saja, lalu menghitung skor per pengemudi per periode 2 minggu (label Beweekly).</li>
     <li>Setiap pengemudi dibandingkan dengan rata-rata pengemudi di <b>band km yang sama</b> (L1–L5), jadi yang travel load-nya tinggi tidak otomatis kalah.</li>
     <li>Overspeed ≤${Pp.OSTOL} count per trip ditoleransi. Night driving = trip yang <b>mulai</b> ${nt}.</li>
+    <li>Overspeed <b>singkat ≤${Pp.OSMINDET} detik</b> (mis. saat menyalip) tidak dihitung sebagai kasus — aktif bila file <b>detail kejadian overspeed</b> (laporan speeding Cartrack) ikut diunggah di <a href="#/unggah">Unggah data</a>.</li>
     <li>Pelanggaran yang sama 2 periode berturut-turut → pengurang. Bila di luar standar (MERAH), atasan menerima email berisi kapan, di mana, dan apa pelanggarannya.</li>
     <li>Data diolah dan disimpan <b>di perangkat ini saja</b> (tidak dikirim ke server). Gunakan menu <a href="#/data">Data &amp; cadangan</a> untuk memindahkan data ke perangkat lain.</li></ul>
     <h3 class="sec">Langkah kerja tiap 2 minggu</h3>
@@ -25,6 +26,7 @@ PAGES.panduan = {
     <h3 class="sec">Angka penting (bisa diubah QSHE di menu Parameter)</h3>
     <div class="kv">
       <div>Toleransi overspeed</div><div>≤ ${Pp.OSTOL} count per trip tidak dihitung (overspeed singkat, mis. menyalip)</div>
+      <div>Durasi minimum overspeed</div><div>kejadian ≤ ${Pp.OSMINDET} detik diabaikan — butuh file detail kejadian overspeed (menu Unggah data)</div>
       <div>Ngebut beruntun</div><div>≥ ${Pp.OSSUS} count dalam satu trip → status overspeed MERAH</div>
       <div>Batas overspeed KUNING</div><div>≤ ${fx(Pp.OSKUN, 0)} per 1.000 km; lebih dari itu MERAH</div>
       <div>Jam malam</div><div>trip mulai ${nt} (19:00–19:59 tidak dihitung)</div>
@@ -49,26 +51,56 @@ PAGES.panduan = {
 /* ------------------------------------------------------------ UNGGAH */
 PAGES.unggah = {
   title: 'Unggah data', render(v) {
-    v.innerHTML = head('Unggah data', 'Data mentah Cartrack, lampiran GA "Data Case", master karyawan, atau file cadangan. Bisa beberapa file sekaligus.') + `<div class="pad">
-      <label class="drop" id="drop" tabindex="0"><input type="file" id="files" multiple accept=".xlsx,.csv,.txt,.json" hidden>
-        <b>Klik atau seret file ke sini</b><div class="note">Didukung: <b>Data Score Behavior</b> Cartrack (.xlsx / .csv, bisa ratusan MB) · <b>Data Case</b> bulanan GA (.xlsx) · <b>Master karyawan</b> (.xlsx sheet 10 dari workbook Excel atau template .csv) · <b>Cadangan</b> aplikasi (.json)</div></label>
+    v.innerHTML = head('Unggah data', 'Data mentah Cartrack, lampiran GA "Data Case", master karyawan, detail kejadian overspeed, atau file cadangan. Bisa beberapa file sekaligus — jenisnya dikenali otomatis.') + `<div class="pad">
+      <label class="drop" id="drop" tabindex="0"><input type="file" id="files" multiple accept=".xlsx,.xlsm,.csv,.txt,.json" hidden>
+        <b>Klik atau seret file ke sini</b><div class="note">Didukung: <b>Data Score Behavior</b> Cartrack (.xlsx / .csv, bisa ratusan MB) · <b>Data Case</b> bulanan GA (.xlsx) · <b>Master karyawan</b> (.xlsx sheet 10 dari workbook Excel atau template .csv) · <b>Detail kejadian overspeed</b> (laporan speeding Cartrack, .xlsx/.csv) · <b>Cadangan</b> aplikasi (.json)</div></label>
       <div id="jobs" style="margin-top:12px;display:grid;gap:8px"></div>
+      <h3 class="sec">Deteksi overspeed singkat (opsional)</h3><div class="card" id="osCard"></div>
       <h3 class="sec">Riwayat unggah</h3><div id="hist"></div>
-      <h3 class="sec">Template</h3><div class="tools"><button class="btn" id="tplMaster">Unduh template master karyawan (.csv)</button><a class="btn" href="#/periode">Lihat periode tersimpan</a></div></div>`;
+      <h3 class="sec">Template</h3><div class="tools"><button class="btn" id="tplMaster">Unduh template master karyawan (.csv)</button><button class="btn" id="tplOs">Unduh template detail kejadian overspeed (.csv)</button><a class="btn" href="#/periode">Lihat periode tersimpan</a></div></div>`;
     const inp = $('#files'), drop = $('#drop');
-    inp.onchange = () => handleFiles([...inp.files]);
+    inp.onchange = () => { const fl = [...inp.files]; inp.value = ''; handleFiles(fl); }; // value dikosongkan agar memilih file yang sama bisa diulang
     drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inp.click(); } });
     ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
     ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
     drop.addEventListener('drop', e => handleFiles([...e.dataTransfer.files]));
+    $('#tplOs').onclick = () => {
+      const h = 'Driver Name;Plate Number;Start Time;Duration;Max Speed;Speed Limit;Location';
+      const contoh = ['BUDI SANTOSO;B 1234 ABC;01/11/2026 08:15:30;8;72;60;Jl. Contoh (durasi 8 detik -> diabaikan)',
+        'BUDI SANTOSO;B 1234 ABC;01/11/2026 09:40:12;0:00:25;95;60;Tol Contoh (25 detik -> dihitung)',
+        'SITI AMINAH;B 5678 DEF;02/11/2026 13:05:00;1:10;88;60;durasi boleh detik, m:ss, atau jj:mm:dd'];
+      download(new Blob(['\ufeff' + h + '\n' + contoh.join('\n')], { type: 'text/csv' }), 'template_detail_overspeed.csv');
+      toast('Isi dari laporan Speeding/Violations Cartrack, lalu unggah kembali di halaman ini.');
+    };
     $('#tplMaster').onclick = () => {
       const h = VT.MASTER_FIELDS.map(f => f[1]).join(';');
       const rows = S.res ? [...new Set(S.res.rows.filter(r => r.PID === S.res.lastPid).map(r => r.drv + ';' + r.cab))].map(x => x + ';;;;;;;;;;') : [];
       download(new Blob(['﻿' + h + '\n' + rows.join('\n')], { type: 'text/csv' }), 'template_master_karyawan.csv');
     };
+    drawOsCard();
     drawHist();
   }
 };
+function drawOsCard() {
+  const el = $('#osCard'); if (!el) return;
+  const ev = S.inputs.osevents || [];
+  const th = P().OSMINDET;
+  const base = `<p class="note" style="margin-top:0">Data mentah "Data Score Behavior" hanya berisi <b>jumlah</b> kejadian overspeed per trip, tanpa durasi. Supaya overspeed singkat (≤ ${th} detik, mis. saat menyalip) <b>tidak dihitung sebagai kasus</b>, unggah juga laporan <b>detail kejadian overspeed</b> dari Cartrack (laporan <i>Speeding/Violations</i>) berisi kolom: waktu kejadian, durasi (atau waktu selesai), dan nama pengemudi atau plat nomor. Batas detik bisa diubah di <a href="#/parameter">Parameter</a> (bagian A).</p>`;
+  if (!ev.length) { el.innerHTML = base + `<p class="note">Status: <b>belum ada file detail</b> — semua count overspeed dari data mentah dihitung (dengan toleransi ≤ ${P().OSTOL} count/trip seperti biasa).</p>`; return; }
+  const o = S.res && S.res.osd ? S.res.osd : null;
+  el.innerHTML = base + (o
+    ? `<div class="kv" style="margin:8px 0"><div>Kejadian tersimpan</div><div><b>${f0(o.events)}</b> (${VT.dtxt(o.minDay)} – ${VT.dtxt(o.maxDay)})</div>
+       <div>Diabaikan (≤ ${th} dtk)</div><div><b>${f0(o.short)}</b> kejadian</div>
+       <div>Tetap dihitung</div><div><b>${f0(o.counted)}</b> kejadian${o.noDur ? ' · ' + f0(o.noDur) + ' tanpa durasi (tetap dihitung)' : ''}</div>
+       <div>Trip dihitung ulang</div><div><b>${f0(o.matchedTrips)}</b> trip: count ${f0(o.origCnt)} → <b>${f0(o.newCnt)}</b></div>
+       <div>Tidak cocok dengan trip</div><div>${f0(o.unmatched)} kejadian (nama/plat atau waktunya tidak ketemu di data mentah — trip terkait tetap memakai count asli)</div></div>`
+    : `<p class="note">${f0(ev.length)} kejadian tersimpan. Unggah data mentah Cartrack untuk melihat pengaruhnya.</p>`)
+    + `<div class="tools"><button class="btn danger sm" id="osClear">Hapus data detail overspeed</button></div>`;
+  $('#osClear').onclick = async () => {
+    if (!(await confirmBox('Hapus semua data detail kejadian overspeed? Skor kembali memakai count asli dari data mentah.', 'Hapus'))) return;
+    S.inputs.osevents = []; saveInputs(true); await recompute(); route(); toast('Data detail overspeed dihapus.');
+  };
+}
 function drawHist() {
   const h = $('#hist'); if (!h) return;
   const a = (S.inputs.imports || []).slice().reverse();
@@ -76,7 +108,7 @@ function drawHist() {
 }
 async function handleFiles(files) {
   const jobs = $('#jobs');
-  let changed = false;
+  let changed = false; const inline = [];
   for (const f of files) {
     const box = document.createElement('div'); box.className = 'card';
     box.innerHTML = `<b>${esc(f.name)}</b> <span class="muted small">${f0(f.size / 1048576)} MB</span><div class="prog"><i></i></div><div class="small muted st">Membaca…</div>`;
@@ -89,6 +121,15 @@ async function handleFiles(files) {
       if (m.kind === 'cartrack') {
         info = `${f0(m.stats.rows)} baris · ${f0(m.stats.drive)} trip Driving · ${f0(m.stats.idle)} Idling · ${m.stats.periods.length} periode · ${f0(m.stats.added)} trip baru · ${f0(m.stats.dup)} ganda dilewati`;
         changed = true;
+      } else if (m.kind === 'cartrack-inline') {
+        // penyimpanan browser gagal → data dipakai di memori untuk sesi ini saja
+        inline.push(m); changed = true;
+        info = `${f0(m.stats.rows)} baris · ${f0(m.stats.drive)} trip Driving — PERHATIAN: penyimpanan browser gagal (${m.stats.dbError}). Data dipakai untuk sesi ini saja dan hilang saat tab ditutup. Coba keluar dari mode privat / kosongkan ruang penyimpanan, lalu unggah ulang.`;
+      } else if (m.kind === 'osdetail') {
+        const map = new Map((S.inputs.osevents || []).map(x => [x.k, x]));
+        let nw = 0; m.os.events.forEach(x => { if (!map.has(x.k)) { map.set(x.k, x); nw++; } });
+        S.inputs.osevents = [...map.values()]; saveInputs(true); changed = true;
+        info = `${f0(m.os.events.length)} kejadian overspeed terbaca · ${f0(nw)} baru (total ${f0(S.inputs.osevents.length)})${m.os.stats.bad ? ' · ' + f0(m.os.stats.bad) + ' baris tanpa waktu dilewati' : ''}${m.os.stats.noDur ? ' · ' + f0(m.os.stats.noDur) + ' tanpa durasi' : ''}`;
       } else if (m.kind === 'ga') {
         const keep = S.ga.rows.filter(r => !m.ga.months.includes(r.bulan));
         S.ga.rows = keep.concat(m.ga.rows); S.ga.months = [...new Set(S.ga.rows.map(r => r.bulan))].sort();
@@ -109,9 +150,26 @@ async function handleFiles(files) {
   }
   if (changed) {
     busy('Memuat ulang data & menghitung skor…');
-    try { setTrips(await DB.periods()); compute(); } catch (e) { toast('Gagal menghitung: ' + e.message, 8000); } finally { busy(false); }
+    try {
+      let per = [];
+      try { per = await DB.periods(); } catch (e) { console.error('[VT] baca DB', e); }
+      setTrips(per);
+      // data yang gagal tersimpan (mode darurat): gabungkan di memori
+      for (const m of inline) {
+        const seen = new Set(S.trips.map(t => t.k)); const addPer = {};
+        for (const t of m.trips) { if (seen.has(t.k)) continue; seen.add(t.k); S.trips.push(t); addPer[t.bw] = (addPer[t.bw] || 0) + 1; }
+        for (const lbl in m.stats.byPeriod) {
+          const st = m.stats.byPeriod[lbl]; const ex = S.pstats[lbl];
+          S.pstats[lbl] = ex
+            ? { rows: Math.max(ex.rows, st.rows), idle: Math.max(ex.idle, st.idle), drive: ex.drive + (addPer[lbl] || 0), minDay: Math.min(ex.minDay, st.minDay), maxDay: Math.max(ex.maxDay, st.maxDay) }
+            : { rows: st.rows, idle: st.idle, drive: addPer[lbl] || 0, minDay: st.minDay, maxDay: st.maxDay };
+        }
+      }
+      compute();
+    } catch (e) { console.error(e); toast('Gagal menghitung: ' + e.message, 8000); } finally { busy(false); }
     renderSide(); toast('Data diperbarui. Buka Dashboard untuk melihat hasil.');
   }
+  drawOsCard();
   drawHist();
 }
 
@@ -277,7 +335,7 @@ PAGES.parameter = {
     const txt = (k, l, help) => `<div class="fld"><label for="p_${k}">${l}</label><input class="inp" type="text" id="p_${k}" data-k="${k}" data-t="1" value="${esc(Pp[k])}">${help ? `<div class="help">${help}</div>` : ''}</div>`;
     v.innerHTML = head('Parameter & standar keberterimaan', 'Kotak oranye boleh diubah QSHE. Nilai bawaan = workbook Excel. Setelah disimpan, semua skor dihitung ulang.') + `<div class="pad">
     <div class="tools"><button class="btn pri" id="pSave">Simpan & hitung ulang</button><button class="btn" id="pReset">Kembalikan ke nilai bawaan</button><span class="sp"></span><span class="note">${Object.keys(o).length ? Object.keys(o).length + ' parameter diubah dari bawaan' : 'Semua parameter = bawaan'}</span></div>
-    <h3 class="sec">A. Aturan data</h3><div class="form card">${num('NSTART', 'Jam mulai night driving (0–23)', 'Trip yang MULAI pada jam ini atau lebih = night driving.', 1)}${num('NEND', 'Night driving berlaku sampai sebelum jam', 'Trip mulai 00:00 s.d. sebelum jam ini juga malam. 0 = hanya ≥ jam mulai.', 1)}${num('OSTOL', 'Toleransi overspeed (count per trip, 0–5)', 'Trip dengan count ≤ nilai ini tidak dihitung.', 1)}${num('OSKUN', 'Batas laju overspeed KUNING (per 1.000 km)', 'Lebih dari ini = MERAH.')}${num('OSSUS', 'Count per trip disebut "ngebut beruntun"', 'Trip dengan count ≥ ini → MERAH.', 1)}</div>
+    <h3 class="sec">A. Aturan data</h3><div class="form card">${num('NSTART', 'Jam mulai night driving (0–23)', 'Trip yang MULAI pada jam ini atau lebih = night driving.', 1)}${num('NEND', 'Night driving berlaku sampai sebelum jam', 'Trip mulai 00:00 s.d. sebelum jam ini juga malam. 0 = hanya ≥ jam mulai.', 1)}${num('OSTOL', 'Toleransi overspeed (count per trip, 0–5)', 'Trip dengan count ≤ nilai ini tidak dihitung.', 1)}${num('OSKUN', 'Batas laju overspeed KUNING (per 1.000 km)', 'Lebih dari ini = MERAH.')}${num('OSSUS', 'Count per trip disebut "ngebut beruntun"', 'Trip dengan count ≥ ini → MERAH.', 1)}${num('OSMINDET', 'Durasi minimum overspeed dihitung (detik)', 'Kejadian ≤ nilai ini TIDAK dihitung sebagai kasus. Hanya berlaku bila file detail kejadian overspeed diunggah di menu Unggah data; tanpa file itu, data mentah tidak memuat durasi.', 1)}</div>
     <h3 class="sec">B. Band travel load & kredit beban</h3><div class="card"><table class="t"><thead><tr><th>Band</th><th>Batas bawah km</th><th>Kredit beban (poin)</th></tr></thead><tbody>${VT.LAB.map((b, i) => `<tr><td><b>${b}</b></td><td><input class="cell" type="number" data-arr="BAND_LO" data-i="${i}" value="${Pp.BAND_LO[i]}" ${i === 0 ? 'disabled' : ''}></td><td><input class="cell" type="number" data-arr="LC" data-i="${i}" value="${Pp.LC[i]}"></td></tr>`).join('')}</tbody></table></div>
     <h3 class="sec">C. Rata-rata kelompok (benchmark)</h3><div class="card"><div class="tbox free"><table class="t"><thead><tr><th>Komponen</th>${VT.LAB.map(b => `<th>${b}</th>`).join('')}<th>Satuan</th></tr></thead><tbody>${VT.COMP.map(c => `<tr><td><b>${c.name}</b></td>${VT.LAB.map(b => `<td><input class="cell" type="number" step="0.01" data-bm="${b}" data-c="${c.k}" value="${Pp.BM[b][c.k]}"></td>`).join('')}<td>${c.unit}</td></tr>`).join('')}</tbody></table></div>
       <div class="tools"><button class="btn" id="pCal">Kalibrasi ulang dari data tersimpan…</button><span class="note">Hitung ulang tiap awal FY: total kejadian ÷ total eksposur per band, lantai 50% nasional.</span></div></div>

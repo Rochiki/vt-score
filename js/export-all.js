@@ -204,6 +204,7 @@ async function exportAll(pid) {
         ['Faktor koreksi: ' + corr.filter(c => c.status === 'Disetujui').length + ' disetujui · ' + corr.filter(c => c.status === 'Diajukan').length + ' menunggu persetujuan QSHE', 'Faktor koreksi'],
         ['Faktor lain: ' + (F.insiden || []).length + ' insiden · ' + (F.promosi || []).length + ' promosi · ' + (F.mutasi || []).length + ' mutasi · ' + (F.keluar || []).length + ' keluar · ' + (F.pelatihan || []).length + ' pelatihan', 'Faktor lain'],
         ['Pemimpin terdeteksi (FR/CSS/Unit/Section Head): ' + VT.recapLeaders(res, res.lastPid, Pp).length + ' orang', 'Rekap pemimpin'],
+        [res.osd ? 'Detail overspeed aktif: ' + VT.fx(res.osd.events, 0) + ' kejadian · ' + VT.fx(res.osd.short, 0) + ' diabaikan (≤' + Pp.OSMINDET + ' dtk) · ' + VT.fx(res.osd.matchedTrips, 0) + ' trip dihitung ulang' : 'Deteksi overspeed singkat (≤' + Pp.OSMINDET + ' dtk) belum aktif — unggah file detail kejadian overspeed bila tersedia', 'Unggah data'],
         ['Kualitas data: ' + VT.fx(res.dq.generic, 0) + ' trip ID generik (DRIVER…/MASTER…, ' + res.dq.genericIds + ' ID) · ' + VT.fx(res.dq.v120, 0) + ' trip kecepatan rata-rata >120 km/jam', 'Data & cadangan'],
         ['Laporan bulanan GA: ' + (S.ga.months.length ? S.ga.months.map(m => VT.monthLabel(m)).join(', ') : 'belum diunggah'), S.ga.months.length ? 'Laporan bulanan GA' : 'Panduan']];
       stat.forEach(([t, sh]) => { r++; cell(r, 1, 10, t, { h: est(t, 110), al: { indent: 1 } }); const c = cell(r, 11, 12, { text: 'Buka sheet ›', hyperlink: "#'" + sh + "'!A1" }, { font: { size: 9, bold: true, underline: true, color: { argb: 'FFC2410C' } }, al: { horizontal: 'center' } }); });
@@ -285,7 +286,7 @@ async function exportAll(pid) {
 
     // 9. Referensi
     const pr = [];
-    [['NSTART', 'Jam mulai night driving'], ['NEND', 'Night driving sampai sebelum jam'], ['OSTOL', 'Toleransi overspeed (count/trip)'], ['OSKUN', 'Batas overspeed KUNING (/1.000 km)'], ['OSSUS', 'Count ngebut beruntun'], ['BASE', 'Basis skor komponen'], ['KKM', 'Km bayangan'], ['KH', 'Jam bayangan'],
+    [['NSTART', 'Jam mulai night driving'], ['NEND', 'Night driving sampai sebelum jam'], ['OSTOL', 'Toleransi overspeed (count/trip)'], ['OSKUN', 'Batas overspeed KUNING (/1.000 km)'], ['OSSUS', 'Count ngebut beruntun'], ['OSMINDET', 'Durasi minimum overspeed dihitung (detik; butuh file detail kejadian)'], ['BASE', 'Basis skor komponen'], ['KKM', 'Km bayangan'], ['KH', 'Jam bayangan'],
       ['TOL', 'Toleransi tidak berubah'], ['CRIT', 'Level kritis (× rata-rata)'], ['PTET', 'Pengurang berulang tetap'], ['PBUR', 'Pengurang berulang makin buruk'], ['OSMULT', 'Pengali overspeed'], ['STREAK', 'Pengali beruntun'], ['REPCAP', 'Maks pengurang berulang'],
       ['DECAY', 'Masa berlaku insiden (hari)'], ['CAPA', 'Faktor CAPA tepat waktu'], ['LCAP', 'Maks pengurang pemimpin'], ['NOTIFR', 'Batas MERAH komponen (rasio)'], ['NOTIFMIN', 'Minimal kejadian notifikasi'], ['DEADLINE', 'Tenggat tindak lanjut (hari kerja)'], ['GAP1OS', 'GA Prioritas 1: overspeed ≥'], ['GAP2', 'GA Prioritas 2: kasus ≥']].forEach(([key, l]) => pr.push([l, Pp[key], key]));
     VT.LAB.forEach((b, i) => pr.push(['Band ' + b + ' batas bawah km / kredit beban', Pp.BAND_LO[i] + ' / ' + Pp.LC[i], 'BAND']));
@@ -323,7 +324,7 @@ async function exportAll(pid) {
       { t: 'Ringkasnya dalam 1 menit', bold: true, rows: [
         ['Sumber data', 'File mentah Cartrack ("Data Score Behavior", .xlsx atau .csv). Sheet "Data" dipakai; hanya trip Driving dengan DID personal yang dinilai.'],
         ['Travel load berimbang', 'Pengemudi dibandingkan dengan rata-rata pengemudi di band km yang sama (L1–L5), jadi yang jaraknya jauh tidak otomatis kalah.'],
-        ['Overspeed', 'Overspeed ≤ ' + Pp.OSTOL + ' count per trip ditoleransi. ≥ ' + Pp.OSSUS + ' count dalam satu trip = ngebut beruntun → status MERAH.'],
+        ['Overspeed', 'Overspeed ≤ ' + Pp.OSTOL + ' count per trip ditoleransi. ≥ ' + Pp.OSSUS + ' count dalam satu trip = ngebut beruntun → status MERAH. Bila file detail kejadian diunggah, kejadian ≤ ' + Pp.OSMINDET + ' detik tidak dihitung sebagai kasus.'],
         ['Night driving', 'Trip yang mulai ' + nt0 + '.'],
         ['Pelanggaran berulang', 'Pelanggaran yang sama 2 periode berturut-turut → pengurang skor. Bila di luar standar (MERAH), atasan menerima email berisi kapan, di mana, dan apa pelanggarannya.'],
         ['Penyimpanan', 'Data diolah dan disimpan di perangkat (browser) saja. Gunakan menu Data & cadangan untuk memindahkan data.']] },

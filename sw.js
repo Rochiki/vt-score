@@ -3,7 +3,7 @@
    SETIAP KALI ADA PERUBAHAN FILE: naikkan VERSI (v1 -> v2 -> ...)
    supaya perangkat pengguna mengambil versi terbaru.
    ===================================================================== */
-const VERSI = 'v4';
+const VERSI = 'v5';
 const CACHE = 'vt-score-' + VERSI;
 const FILES = [
   './', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png',

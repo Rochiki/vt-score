@@ -9,7 +9,7 @@
   'use strict';
   const X = root.XLSXStream || (typeof require !== 'undefined' ? require('./xlsx-stream.js') : null);
   const VT = {};
-  VT.VERSION = '1.2.1';
+  VT.VERSION = '1.3.0';
 
   /* ------------------------------------------------------------ parameter */
   VT.LAB = ['L1', 'L2', 'L3', 'L4', 'L5'];
@@ -23,7 +23,7 @@
   VT.REPC = ['spd', 'fat', 'night', 'brk', 'acc'];
 
   VT.DEFAULTS = {
-    NSTART: 20, NEND: 5, OSTOL: 2, OSKUN: 10, OSSUS: 10,
+    NSTART: 20, NEND: 5, OSTOL: 2, OSKUN: 10, OSSUS: 10, OSMINDET: 10,
     BAND_LO: [0, 100, 250, 450, 750], LC: [0, 0, 1, 2, 3],
     BM: {
       L1: { spd: 2.02, fat: 2.13, night: 3.1, brk: 2.46, acc: 2.51, cor: 97.24 },
@@ -173,15 +173,16 @@
     }
     for (const sh of order) {
       if (/^(pivot|case)$/i.test(sh.name)) continue;
-      let hdr = null, hr = 0;
+      const osHint = /speed|overspeed|speeding|violat|pelanggaran/i.test(sh.name);
+      let hdr = null, hr = 0, kind = '';
       await X.readRows(wb, sh, (rn, v) => {
-        if (isCartrackHeader(v)) { hdr = v; hr = rn; return false; }
+        if (isCartrackHeader(v)) { hdr = v; hr = rn; kind = 'cartrack'; return false; }
         const hs = v.map(H);
-        if (hs.some(x => x && x.startsWith('nama did')) && hs.some(x => x && x.indexOf('atasan langsung') >= 0)) { hdr = v; hr = -rn; return false; }
+        if (hs.some(x => x && x.startsWith('nama did')) && hs.some(x => x && x.indexOf('atasan langsung') >= 0)) { hdr = v; hr = rn; kind = 'master'; return false; }
+        if (isOsDetailHeader(v, osHint)) { hdr = v; hr = rn; kind = 'osdetail'; return false; }
         if (rn > 80) return false;
       });
-      if (hdr && hr > 0) return { type: 'cartrack', wb, sheet: sh, headerRow: hr, header: hdr };
-      if (hdr && hr < 0) return { type: 'master', wb, sheet: sh, headerRow: -hr, header: hdr };
+      if (hdr) return { type: kind, wb, sheet: sh, headerRow: hr, header: hdr };
     }
     return { type: 'unknown', wb };
   };
@@ -251,6 +252,140 @@
     feed(dec.decode(), true);
     if (!hdrDone) throw new Error('Header data Cartrack tidak ditemukan di CSV.');
     return { trips, stats };
+  };
+
+  /* ---------------- detail kejadian overspeed (laporan speeding/violation Cartrack) ---------------- */
+  /** Kolom file detail: fleksibel — cukup ada waktu mulai + (durasi ATAU waktu selesai) + (nama/plat). */
+  const OS_COLS = {
+    t0: ['start time', 'start date', 'waktu mulai', 'tanggal mulai', 'event time', 'event date', 'begin time', 'start', 'mulai', 'waktu kejadian', 'date/time', 'datetime', 'waktu', 'tanggal', 'date', 'time'],
+    t1: ['end time', 'end date', 'waktu selesai', 'finish time', 'end', 'selesai', 'sampai'],
+    dur: ['duration (s)', 'duration (sec)', 'duration (seconds)', 'durasi (detik)', 'speeding duration', 'overspeed duration', 'duration', 'durasi', 'lama (detik)', 'lama', 'detik', 'seconds'],
+    nama: ['driver name', 'nama pengemudi', 'nama did', 'driver', 'pengemudi', 'nama'],
+    pl: ['plate number', 'plate', 'nopol', 'no pol', 'registration', 'vehicle registration', 'no. polisi', 'kendaraan', 'vehicle'],
+    max: ['max speed', 'maximum speed', 'top speed', 'highest speed', 'kecepatan maks', 'kecepatan tertinggi', 'max. speed', 'speed (km/h)', 'speed'],
+    lim: ['speed limit', 'road speed limit', 'batas kecepatan', 'limit'],
+    lok: ['location', 'lokasi', 'address', 'alamat', 'position', 'road name', 'road', 'jalan']
+  };
+  function mapOsHeader(row) {
+    const hs = row.map(H); const idx = {};
+    for (const k in OS_COLS) { for (const cand of OS_COLS[k]) { const i = hs.findIndex(h => h && (h === cand || h.indexOf(cand) >= 0)); if (i >= 0 && Object.values(idx).indexOf(i) < 0) { idx[k] = i; break; } } }
+    return idx;
+  }
+  /** Header file detail overspeed? Wajib: waktu mulai + (durasi|selesai) + (nama|plat) + ada kata "speed", dan BUKAN header trip Cartrack. */
+  function isOsDetailHeader(row, sheetHint) {
+    if (!row || row.filter(x => x != null && String(x).trim() !== '').length < 3) return false;
+    const hs = row.map(H);
+    if (hs.includes('remark') || hs.includes('mileage (km)') || hs.includes('beweekly')) return false; // itu data trip Cartrack
+    const ix = mapOsHeader(row);
+    if (ix.t0 == null || (ix.dur == null && ix.t1 == null) || (ix.nama == null && ix.pl == null)) return false;
+    const hint = sheetHint || hs.some(h => h && (h.indexOf('speed') >= 0 || h.indexOf('kecepatan') >= 0));
+    return !!hint;
+  }
+  VT.isOsDetailHeader = isOsDetailHeader;
+  /** Durasi → detik. Menerima detik (angka), fraksi hari Excel, "hh:mm:ss", "mm:ss", "37 s", "1m 10s", "00:00:37". */
+  function toDurSec(v, headerText) {
+    if (v == null || v === '') return null;
+    const ht = H(headerText || '');
+    if (typeof v === 'number') {
+      if (!isFinite(v) || v < 0) return null;
+      if (v < 1) return Math.round(v * 86400); // format waktu Excel
+      if (ht.indexOf('min') >= 0 || ht.indexOf('menit') >= 0) return Math.round(v * 60);
+      if (ht.indexOf('jam') >= 0 || ht.indexOf('hour') >= 0) return Math.round(v * 3600);
+      return Math.round(v);
+    }
+    const s = String(v).trim().toLowerCase(); if (!s) return null;
+    let m;
+    if ((m = /^(\d+):(\d{1,2}):(\d{1,2})$/.exec(s))) return +m[1] * 3600 + +m[2] * 60 + +m[3];
+    if ((m = /^(\d+):(\d{1,2})$/.exec(s))) return +m[1] * 60 + +m[2];
+    if ((m = /^(?:(\d+)\s*(?:h|j|jam|hour)s?)?\s*(?:(\d+)\s*(?:m|min|mnt|menit)s?)?\s*(?:(\d+(?:[.,]\d+)?)\s*(?:s|sec|dtk|detik)s?)?$/.exec(s)) && (m[1] || m[2] || m[3]))
+      return Math.round((+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (parseFloat(String(m[3] || '0').replace(',', '.')) || 0));
+    const n = parseFloat(s.replace(',', '.'));
+    if (!isNaN(n) && isFinite(n) && n >= 0) return toDurSec(n, headerText);
+    return null;
+  }
+  VT.toDurSec = toDurSec;
+  const normPl = p => norm(p).replace(/[\s.-]/g, '');
+  VT.normPl = normPl;
+  /** rows (array of arrays) → { events, stats }. event: {t, t1, dur(detik|null), nama, pl, max, lim, lok, k} */
+  VT.importOsDetailRows = function (rows, sheetName) {
+    const hint = /speed|overspeed|speeding|violat|pelanggaran/i.test(sheetName || '');
+    let hi = -1;
+    for (let i = 0; i < Math.min(rows.length, 60); i++) { if (isOsDetailHeader(rows[i], hint)) { hi = i; break; } }
+    if (hi < 0) throw new Error('Header detail kejadian overspeed tidak ditemukan. Kolom minimal: waktu mulai + (durasi ATAU waktu selesai) + (nama pengemudi ATAU plat nomor), dan ada kolom berlabel "speed".');
+    const ix = mapOsHeader(rows[hi]); const durHdr = ix.dur != null ? String(rows[hi][ix.dur] || '') : '';
+    const events = []; const stats = { read: 0, bad: 0, noDur: 0 };
+    const seen = new Set();
+    for (let i = hi + 1; i < rows.length; i++) {
+      const r = rows[i]; if (!r || !r.length) continue;
+      const t = ix.t0 != null ? toSerial(r[ix.t0]) : null;
+      const nama = ix.nama != null ? norm(r[ix.nama]) : '';
+      const pl = ix.pl != null ? normPl(r[ix.pl]) : '';
+      if (t == null && !nama && !pl) continue; // baris kosong/penjelas
+      stats.read++;
+      if (t == null) { stats.bad++; continue; }
+      let dur = ix.dur != null ? toDurSec(r[ix.dur], durHdr) : null;
+      const t1 = ix.t1 != null ? toSerial(r[ix.t1]) : null;
+      if (dur == null && t1 != null && t1 >= t) dur = Math.round((t1 - t) * 86400);
+      if (dur == null) stats.noDur++;
+      const ev = { t, dur, nama, pl, max: ix.max != null ? toNum(r[ix.max]) || null : null, lim: ix.lim != null ? toNum(r[ix.lim]) || null : null, lok: ix.lok != null ? String(r[ix.lok] == null ? '' : r[ix.lok]).trim() : '' };
+      ev.k = pl + '|' + nama + '|' + Math.round(t * 86400) + '|' + (dur == null ? '' : dur);
+      if (seen.has(ev.k)) continue; seen.add(ev.k);
+      events.push(ev);
+    }
+    if (!events.length) throw new Error('Tidak ada baris kejadian yang terbaca dari file detail overspeed.');
+    return { events, stats };
+  };
+  VT.importOsDetailXlsx = async function (det) {
+    const rows = await X.readSheetAll(det.wb, det.sheet, 300000);
+    return VT.importOsDetailRows(rows, det.sheet.name);
+  };
+  /**
+   * Terapkan detail kejadian ke trip: untuk trip yang kejadiannya cocok (plat/nama + waktu),
+   * count overspeed trip diganti dengan jumlah kejadian berdurasi > P.OSMINDET detik.
+   * Trip tanpa kejadian yang cocok tetap memakai count asli dari data mentah.
+   */
+  VT.applyOsDetail = function (trips, events, P) {
+    const stats = { events: 0, short: 0, counted: 0, noDur: 0, unmatched: 0, matchedTrips: 0, origCnt: 0, newCnt: 0, minDay: null, maxDay: null, th: P.OSMINDET };
+    if (!events || !events.length) return { trips, stats: null };
+    const TH = +P.OSMINDET || 0, TOLD = 3 / 1440; // toleransi pencocokan waktu ±3 menit
+    const byPl = new Map(), byDrv = new Map();
+    const push = (m, k, i) => { if (!k) return; let a = m.get(k); if (!a) { a = []; m.set(k, a); } a.push(i); };
+    trips.forEach((t, i) => { push(byPl, normPl(t.pl), i); push(byDrv, t.d, i); });
+    const cmp = (a, b) => trips[a].t0 - trips[b].t0;
+    for (const a of byPl.values()) a.sort(cmp);
+    for (const a of byDrv.values()) a.sort(cmp);
+    const endOf = t => (t.t1 != null && t.t1 >= t.t0 ? t.t1 : t.t0 + Math.max(t.h, 0) / 24);
+    const findTrip = (list, tv) => {
+      if (!list) return -1;
+      let lo = 0, hi = list.length - 1, pos = -1;
+      while (lo <= hi) { const mid = (lo + hi) >> 1; if (trips[list[mid]].t0 <= tv + TOLD) { pos = mid; lo = mid + 1; } else hi = mid - 1; }
+      for (let j = pos; j >= 0 && j > pos - 6; j--) { const t = trips[list[j]]; if (tv >= t.t0 - TOLD && tv <= endOf(t) + TOLD) return list[j]; }
+      return -1;
+    };
+    const assign = new Map();
+    for (const ev of events) {
+      stats.events++;
+      const d = Math.floor(ev.t + 1e-9);
+      if (stats.minDay == null || d < stats.minDay) stats.minDay = d;
+      if (stats.maxDay == null || d > stats.maxDay) stats.maxDay = d;
+      let ti = findTrip(byPl.get(ev.pl), ev.t);
+      if (ti < 0) ti = findTrip(byDrv.get(ev.nama), ev.t);
+      const long = ev.dur == null ? true : ev.dur > TH; // tanpa durasi → tetap dihitung (konservatif)
+      if (ev.dur == null) stats.noDur++; else if (!long) stats.short++;
+      if (long) stats.counted++;
+      if (ti < 0) { stats.unmatched++; continue; }
+      let rec = assign.get(ti); if (!rec) { rec = { all: 0, long: 0 }; assign.set(ti, rec); }
+      rec.all++; if (long) rec.long++;
+    }
+    if (!assign.size) return { trips, stats };
+    const out = trips.slice();
+    for (const [i, rec] of assign) {
+      const t = Object.assign({}, trips[i]);
+      stats.origCnt += t.spd; stats.newCnt += rec.long;
+      t.spdOrig = t.spd; t.spd = rec.long; t.osd = 1;
+      out[i] = t; stats.matchedTrips++;
+    }
+    return { trips: out, stats };
   };
 
   /** Impor master karyawan (format sheet 10 workbook Excel atau template CSV aplikasi) */
@@ -549,7 +684,8 @@
   VT.tripViol = function (t, P) {
     const hr = hourOf(t.t0); const night = (hr >= P.NSTART || hr < P.NEND) && !t.nn;
     const parts = [];
-    if (t.spd > P.OSTOL) parts.push('overspeed ' + t.spd + 'x'); else if (t.spd > 0) parts.push('overspeed singkat ' + t.spd + 'x (ditoleransi)');
+    const osNote = t.spdOrig != null && t.spdOrig > t.spd ? ' [' + (t.spdOrig - t.spd) + ' kejadian ≤' + P.OSMINDET + ' dtk diabaikan]' : '';
+    if (t.spd > P.OSTOL) parts.push('overspeed ' + t.spd + 'x' + osNote); else if (t.spd > 0) parts.push('overspeed singkat ' + t.spd + 'x (ditoleransi)' + osNote);
     if (t.fat > 0) parts.push('fatigue ' + t.fat + 'x');
     if (t.brk > 0) parts.push('rem mendadak ' + t.brk + 'x');
     if (t.acc > 0) parts.push('akselerasi kasar ' + t.acc + 'x');
@@ -629,6 +765,9 @@
     const nondriver = new Set((F.nondriver || []).map(x => norm(x.nama)).filter(Boolean));
     const from = inp.scoreFromPid || 1;
     let trips = data.trips.filter(t => (pidOf[t.bw] || 0) >= from);
+    // detail kejadian overspeed (opsional): kejadian ≤ OSMINDET detik tidak dihitung
+    let osd = null;
+    if (inp.osevents && inp.osevents.length) { const o = VT.applyOsDetail(trips, inp.osevents, P); trips = o.trips; osd = o.stats; }
     const cor = VT.applyCorrections(trips, inp.corrections, pidOf, P);
     trips = cor.trips;
     const ag = VT.aggregate(trips, pidOf, P, nondriver);
@@ -647,7 +786,7 @@
       for (let i = periods.length - 1; i >= 0; i--) if (periods[i].days >= 7 && rows.some(r => r.PID === periods[i].pid)) return periods[i].pid;
       return periods.length ? periods[periods.length - 1].pid : 0;
     })();
-    return { P, periods, rows, tripsByKey, corAudit: cor.audit, dq: ag.dq, lastPid, master, pidOf, tripsUsed: trips };
+    return { P, periods, rows, tripsByKey, corAudit: cor.audit, dq: ag.dq, lastPid, master, pidOf, tripsUsed: trips, osd };
   };
 
   /* ------------------------------------------------------------ analitik (dashboard, rekap) */

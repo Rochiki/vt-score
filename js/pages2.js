@@ -561,7 +561,7 @@ PAGES.data = {
     $('#clr').onclick = async () => { if (!(await confirmBox('Hapus SEMUA data (trip, input, master, GA, pengaturan) dari perangkat ini? Pastikan sudah mengunduh cadangan.', 'Hapus semua'))) return; await DB.clearAll(); location.reload(); };
     (async () => {
       const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
-      $('#stg').innerHTML = `<div class="kv"><div>Trip Driving tersimpan</div><div>${f0(S.trips.length)}</div><div>Periode</div><div>${Object.keys(S.pstats).length}</div><div>Master karyawan</div><div>${(S.inputs.master || []).length}</div><div>Faktor koreksi</div><div>${(S.inputs.corrections || []).length}</div><div>Baris data GA</div><div>${S.ga.rows.length}</div><div>Ruang terpakai</div><div>${est ? f0(est.usage / 1048576) + ' MB dari ' + f0(est.quota / 1048576) + ' MB' : '–'}</div></div>`;
+      $('#stg').innerHTML = `<div class="kv"><div>Trip Driving tersimpan</div><div>${f0(S.trips.length)}</div><div>Periode</div><div>${Object.keys(S.pstats).length}</div><div>Master karyawan</div><div>${(S.inputs.master || []).length}</div><div>Faktor koreksi</div><div>${(S.inputs.corrections || []).length}</div><div>Baris data GA</div><div>${S.ga.rows.length}</div><div>Kejadian detail overspeed</div><div>${(S.inputs.osevents || []).length}</div><div>Ruang terpakai</div><div>${est ? f0(est.usage / 1048576) + ' MB dari ' + f0(est.quota / 1048576) + ' MB' : '–'}</div></div>`;
     })();
     if (S.res) {
       const dq = S.res.dq; const ps = S.res.periods;

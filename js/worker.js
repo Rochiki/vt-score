@@ -20,6 +20,16 @@ async function mergeCartrack(trips, stats) {
   return { added, dup, labels };
 }
 
+async function handleCartrack(id, name, r) {
+  try {
+    const m = await mergeCartrack(r.trips, r.stats);
+    post('done', { id, name, kind: 'cartrack', stats: { rows: r.stats.rows, drive: r.stats.drive, idle: r.stats.idle, periods: m.labels, added: m.added, dup: m.dup, sheet: r.stats.sheet, headerRow: r.stats.headerRow } });
+  } catch (e) {
+    // Penyimpanan browser gagal (mode privat / penuh): kirim trip ke halaman agar tetap bisa dipakai sesi ini.
+    post('done', { id, name, kind: 'cartrack-inline', trips: r.trips, stats: { rows: r.stats.rows, drive: r.stats.drive, idle: r.stats.idle, byPeriod: r.stats.byPeriod, dbError: e && e.message ? e.message : String(e) } });
+  }
+}
+
 self.onmessage = async (ev) => {
   const { id, cmd, file } = ev.data;
   try {
@@ -29,19 +39,22 @@ self.onmessage = async (ev) => {
     if (/\.csv$/i.test(name) || /\.txt$/i.test(name)) {
       const head = (await file.slice(0, 65536).text()).toLowerCase();
       if (head.indexOf('nama did') >= 0) return post('done', { id, name, kind: 'master', master: VT.importMasterRows(VT.csvRows(await file.text())) });
+      if (head.indexOf('mileage') < 0 && head.indexOf('remark') < 0 && (head.indexOf('speed') >= 0 || /speed|overspeed|speeding|violat|pelanggaran/i.test(name)) && (head.indexOf('duration') >= 0 || head.indexOf('durasi') >= 0 || head.indexOf('end') >= 0 || head.indexOf('selesai') >= 0)) {
+        const r = VT.importOsDetailRows(VT.csvRows(await file.text()), name);
+        return post('done', { id, name, kind: 'osdetail', os: r });
+      }
       const r = await VT.importCartrackCsv(file, prog);
-      const m = await mergeCartrack(r.trips, r.stats);
-      return post('done', { id, name, kind: 'cartrack', stats: { rows: r.stats.rows, drive: r.stats.drive, idle: r.stats.idle, periods: m.labels, added: m.added, dup: m.dup } });
+      return handleCartrack(id, name, r);
     }
     if (/\.json$/i.test(name)) {
       const txt = await file.text();
       return post('done', { id, name, kind: 'backup', json: JSON.parse(txt) });
     }
+    if (!/\.(xlsx|xlsm)$/i.test(name)) throw new Error('Jenis file "' + (name.split('.').pop() || '?') + '" tidak didukung. Gunakan .xlsx, .csv, .txt, atau cadangan .json. File .xls (Excel lama) harap disimpan ulang sebagai .xlsx.');
     const det = await VT.detectXlsx(file);
     if (det.type === 'cartrack') {
       const r = await VT.importCartrackXlsx(det, prog);
-      const m = await mergeCartrack(r.trips, r.stats);
-      return post('done', { id, name, kind: 'cartrack', stats: { rows: r.stats.rows, drive: r.stats.drive, idle: r.stats.idle, periods: m.labels, added: m.added, dup: m.dup, sheet: r.stats.sheet, headerRow: r.stats.headerRow } });
+      return handleCartrack(id, name, r);
     }
     if (det.type === 'ga') {
       const r = await VT.importGA(det);
@@ -51,7 +64,11 @@ self.onmessage = async (ev) => {
       const rows = await VT.importMasterXlsx(det);
       return post('done', { id, name, kind: 'master', master: rows });
     }
-    throw new Error('Jenis file tidak dikenali. Yang didukung: data mentah Cartrack (Data Score Behavior), lampiran GA "Data Case", master karyawan, atau file cadangan .json.');
+    if (det.type === 'osdetail') {
+      const r = await VT.importOsDetailXlsx(det);
+      return post('done', { id, name, kind: 'osdetail', os: r });
+    }
+    throw new Error('Jenis file tidak dikenali. Yang didukung: data mentah Cartrack (Data Score Behavior), lampiran GA "Data Case", master karyawan, detail kejadian overspeed (laporan speeding Cartrack), atau file cadangan .json.');
   } catch (e) {
     post('error', { id, name: file && file.name, message: e && e.message ? e.message : String(e) });
   }

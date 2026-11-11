@@ -146,9 +146,11 @@ const gridY = { grid: { color: '#e5e5e5' }, border: { display: false } };
 let saveT = null;
 function saveInputs(recompute) {
   clearTimeout(saveT);
-  saveT = setTimeout(async () => { try { await DB.set('inputs', S.inputs); } catch (e) { toast('Gagal menyimpan: ' + e.message, 6000); } }, 250);
+  saveT = setTimeout(async () => { saveT = null; try { await DB.set('inputs', S.inputs); } catch (e) { toast('Gagal menyimpan: ' + e.message, 6000); } }, 250);
   if (recompute) { S.dirty = true; }
 }
+// bila halaman ditutup/dimuat ulang saat simpanan masih tertunda → simpan sekarang juga
+window.addEventListener('pagehide', () => { if (saveT) { clearTimeout(saveT); saveT = null; DB.set('inputs', S.inputs).catch(() => { /* */ }); } });
 const saveGA = () => DB.set('ga', S.ga).catch(e => toast('Gagal menyimpan data GA: ' + e.message));
 const saveSettings = () => DB.set('settings', S.settings).catch(() => {});
 
@@ -182,20 +184,65 @@ const perLabel = pid => { const p = per(pid); return p ? p.lbl : '–'; };
 const perRange = pid => { const p = per(pid); return p ? VT.dtxt(p.start) + ' – ' + VT.dtxt(p.end) : ''; };
 
 /* ------------------------------------------------------------ worker impor */
-let worker = null, wid = 0; const wcb = {};
+let worker = null, wid = 0, workerBroken = false; const wcb = {};
 function getWorker() {
   if (worker) return worker;
   worker = new Worker('js/worker.js');
   worker.onmessage = ev => { const m = ev.data; const cb = wcb[m.id]; if (cb) cb(m); };
-  worker.onerror = e => { toast('Worker error: ' + (e.message || e), 8000); };
+  worker.onerror = e => {
+    // worker gagal dimuat/berjalan (mis. dibuka dari file://) → tandai rusak dan alihkan ke thread utama
+    console.error('[VT] worker gagal', e && e.message);
+    workerBroken = true; try { worker.terminate(); } catch (x) { /* */ } worker = null;
+    Object.keys(wcb).forEach(id => { const cb = wcb[id]; delete wcb[id]; cb({ type: 'error', message: 'Worker gagal — dialihkan ke mode langsung.', wfail: true }); });
+  };
   return worker;
 }
 function importFile(file, onProgress) {
+  if (workerBroken || typeof Worker === 'undefined') return importFileMain(file, onProgress);
+  let w;
+  try { w = getWorker(); } catch (e) { workerBroken = true; return importFileMain(file, onProgress); }
   return new Promise((res, rej) => {
     const id = ++wid;
-    wcb[id] = m => { if (m.type === 'progress') onProgress && onProgress(m.pct); else { delete wcb[id]; m.type === 'done' ? res(m) : rej(new Error(m.message)); } };
-    getWorker().postMessage({ id, cmd: 'import', file });
-  });
+    wcb[id] = m => { if (m.type === 'progress') onProgress && onProgress(m.pct); else { delete wcb[id]; if (m.type === 'done') res(m); else { const er = new Error(m.message); er.wfail = m.wfail; rej(er); } } };
+    w.postMessage({ id, cmd: 'import', file });
+  }).catch(e => { if (e && e.wfail) return importFileMain(file, onProgress); throw e; });
+}
+/** Cadangan: impor di thread utama (layar bisa tersendat sebentar, tapi tetap jalan). */
+async function importFileMain(file, onProgress) {
+  const name = file.name || 'file';
+  const prog = (a, b) => onProgress && onProgress(b ? Math.min(99, Math.round(a / b * 100)) : 0);
+  const mergeMain = async r => {
+    const byLbl = {}; r.trips.forEach(t => { (byLbl[t.bw] = byLbl[t.bw] || []).push(t); });
+    const labels = Object.keys(r.stats.byPeriod); const out = []; let added = 0, dup = 0;
+    for (const lbl of labels) {
+      const ex = await DB.getPeriod(lbl); const nw = byLbl[lbl] || []; const st = r.stats.byPeriod[lbl];
+      if (!ex) { out.push({ lbl, stats: { rows: st.rows, idle: st.idle, drive: nw.length, minDay: st.minDay, maxDay: st.maxDay }, trips: nw }); added += nw.length; continue; }
+      const seen = new Set(ex.trips.map(t => t.k)); const merged = ex.trips.slice();
+      for (const t of nw) { if (seen.has(t.k)) { dup++; continue; } seen.add(t.k); merged.push(t); added++; }
+      out.push({ lbl, stats: { rows: Math.max(ex.stats.rows, st.rows), idle: Math.max(ex.stats.idle, st.idle), drive: merged.length, minDay: Math.min(ex.stats.minDay, st.minDay), maxDay: Math.max(ex.stats.maxDay, st.maxDay) }, trips: merged });
+    }
+    await DB.putPeriods(out);
+    return { kind: 'cartrack', stats: { rows: r.stats.rows, drive: r.stats.drive, idle: r.stats.idle, periods: labels, added, dup, sheet: r.stats.sheet, headerRow: r.stats.headerRow } };
+  };
+  const wrapCartrack = async r => {
+    try { return Object.assign({ name }, await mergeMain(r)); }
+    catch (e) { return { name, kind: 'cartrack-inline', trips: r.trips, stats: { rows: r.stats.rows, drive: r.stats.drive, idle: r.stats.idle, byPeriod: r.stats.byPeriod, dbError: e.message } }; }
+  };
+  if (/\.csv$/i.test(name) || /\.txt$/i.test(name)) {
+    const head = (await file.slice(0, 65536).text()).toLowerCase();
+    if (head.indexOf('nama did') >= 0) return { name, kind: 'master', master: VT.importMasterRows(VT.csvRows(await file.text())) };
+    if (head.indexOf('mileage') < 0 && head.indexOf('remark') < 0 && (head.indexOf('speed') >= 0 || /speed|overspeed|speeding|violat|pelanggaran/i.test(name)) && (head.indexOf('duration') >= 0 || head.indexOf('durasi') >= 0 || head.indexOf('end') >= 0 || head.indexOf('selesai') >= 0))
+      return { name, kind: 'osdetail', os: VT.importOsDetailRows(VT.csvRows(await file.text()), name) };
+    return wrapCartrack(await VT.importCartrackCsv(file, prog));
+  }
+  if (/\.json$/i.test(name)) return { name, kind: 'backup', json: JSON.parse(await file.text()) };
+  if (!/\.(xlsx|xlsm)$/i.test(name)) throw new Error('Jenis file "' + (name.split('.').pop() || '?') + '" tidak didukung. Gunakan .xlsx, .csv, .txt, atau cadangan .json.');
+  const det = await VT.detectXlsx(file);
+  if (det.type === 'cartrack') return wrapCartrack(await VT.importCartrackXlsx(det, prog));
+  if (det.type === 'ga') return { name, kind: 'ga', ga: await VT.importGA(det) };
+  if (det.type === 'master') return { name, kind: 'master', master: await VT.importMasterXlsx(det) };
+  if (det.type === 'osdetail') return { name, kind: 'osdetail', os: await VT.importOsDetailXlsx(det) };
+  throw new Error('Jenis file tidak dikenali. Yang didukung: data mentah Cartrack (Data Score Behavior), lampiran GA "Data Case", master karyawan, detail kejadian overspeed, atau cadangan .json.');
 }
 
 /* ------------------------------------------------------------ router & layout */
@@ -210,6 +257,9 @@ const NAV = [
   ['PENGATURAN', [['ai', 'AI (Claude)'], ['instal', 'Instal aplikasi'], ['data', 'Data & cadangan']]]
 ];
 function renderSide() {
+  try { renderSide0(); } catch (e) { console.error('[VT] sidebar', e); }
+}
+function renderSide0() {
   const cur = (location.hash.replace(/^#\/?/, '').split('?')[0]) || 'dashboard';
   const nNotif = S.res ? S.res.rows.filter(r => r.PID === S.res.lastPid && r.NOTIF > 0 && !r.KELUAR).length : 0;
   const pend = (S.inputs.corrections || []).filter(c => c.status === 'Diajukan').length;
@@ -364,6 +414,9 @@ function drawDash0() {
     [`Faktor koreksi: ${corr.filter(c => c.status === 'Disetujui').length} disetujui · ${corr.filter(c => c.status === 'Diajukan').length} menunggu persetujuan QSHE`, 'koreksi'],
     [`Faktor lain: ${(F.insiden || []).length} insiden · ${(F.promosi || []).length} promosi · ${(F.mutasi || []).length} mutasi · ${(F.keluar || []).length} keluar · ${(F.pelatihan || []).length} pelatihan`, 'faktor'],
     [`Pemimpin terdeteksi (FR/CSS/Unit/Section Head): ${leaders} orang`, 'rekap-pemimpin'],
+    [S.res.osd
+      ? `Detail overspeed aktif: ${f0(S.res.osd.events)} kejadian · ${f0(S.res.osd.short)} diabaikan (≤${P().OSMINDET} dtk) · ${f0(S.res.osd.matchedTrips)} trip dihitung ulang · ${f0(S.res.osd.unmatched)} kejadian tidak cocok dengan trip`
+      : `Deteksi overspeed singkat (≤${P().OSMINDET} dtk) belum aktif — unggah file detail kejadian overspeed dari Cartrack bila tersedia`, 'unggah'],
     [`Kualitas data: ${f0(S.res.dq.generic)} trip ID generik (DRIVER…/MASTER…, ${S.res.dq.genericIds} ID) · ${f0(S.res.dq.v120)} trip kecepatan rata-rata >120 km/jam`, 'data'],
     [`Laporan bulanan GA: ${S.ga.months.length ? S.ga.months.map(m => VT.monthLabel(m)).join(', ') : 'belum diunggah'}`, 'ga']
   ].map(([t, l]) => `<li><span>${esc(t)}</span><a href="#/${l}">Buka ›</a></li>`).join('');
@@ -387,6 +440,17 @@ function renderExec(box, pid, cab) {
 }
 
 /* ------------------------------------------------------------ boot */
+// Penangkap error global: kesalahan tak terduga ditampilkan sebagai pesan, bukan layar diam.
+const errSeen = {};
+function errToast(msg) {
+  msg = String(msg || 'Kesalahan tidak dikenal');
+  if (/ResizeObserver|Script error\.?$/i.test(msg)) return; // noise browser, bukan error aplikasi
+  const now = Date.now();
+  if (errSeen[msg] && now - errSeen[msg] < 10000) return; errSeen[msg] = now;
+  try { toast('Terjadi kesalahan: ' + msg + ' — bila berulang, muat ulang dengan Ctrl+F5.', 8000); } catch (e) { /* */ }
+}
+window.addEventListener('error', e => { console.error('[VT] error', e.error || e.message); errToast(e.message); });
+window.addEventListener('unhandledrejection', e => { const r = e.reason; console.error('[VT] promise', r); errToast(r && r.message ? r.message : r); });
 async function boot() {
   chartsInit();
   $('#menuBtn').onclick = () => $('#side').classList.toggle('open');
