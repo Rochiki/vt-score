@@ -1,5 +1,5 @@
 /* worker.js — membaca file unggahan di latar belakang agar layar tidak macet. */
-importScripts('xlsx-stream.js', 'engine.js', 'db.js');
+importScripts('../lib/fflate.min.js', 'xlsx-stream.js', 'engine.js', 'db.js');
 
 function post(type, data) { self.postMessage(Object.assign({ type }, data)); }
 

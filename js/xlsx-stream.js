@@ -72,8 +72,26 @@
     const raw = blob.slice(start, start + e.csize).stream();
     if (e.method === 0) return raw;
     if (e.method !== 8) throw new Error('Metode kompresi ZIP tidak didukung: ' + e.method);
-    if (typeof DecompressionStream === 'undefined') throw new Error('Browser terlalu lama: perbarui Chrome/Edge/Safari agar bisa membaca file Excel.');
-    return raw.pipeThrough(new DecompressionStream('deflate-raw'));
+    if (typeof DecompressionStream !== 'undefined' && !api._forceJS) {
+      try { return raw.pipeThrough(new DecompressionStream('deflate-raw')); } catch (e) { /* lanjut ke cadangan */ }
+    }
+    // Cadangan untuk browser lama: inflate JavaScript murni (lib/fflate.min.js)
+    const FF = (typeof fflate !== 'undefined' && fflate) || (typeof self !== 'undefined' && self.fflate) || (typeof require === 'function' ? (() => { try { return require('../lib/fflate.min.js'); } catch (e) { return null; } })() : null);
+    if (!FF) throw new Error('Browser ini belum mendukung pembacaan file Excel dan pustaka cadangan (lib/fflate.min.js) tidak termuat. Perbarui Chrome/Edge ke versi 103+ atau muat ulang halaman.');
+    const rd = raw.getReader(); const infl = new FF.Inflate();
+    let q = [], done = false;
+    infl.ondata = (d, fin) => { if (d && d.length) q.push(d); if (fin) done = true; };
+    return new ReadableStream({
+      async pull(ctrl) {
+        while (!q.length && !done) {
+          const r = await rd.read();
+          if (r.done) { try { infl.push(new Uint8Array(0), true); } catch (e) { /* sudah selesai */ } done = true; break; }
+          infl.push(r.value);
+        }
+        if (q.length) ctrl.enqueue(q.shift()); else ctrl.close();
+      },
+      cancel() { try { rd.cancel(); } catch (e) { /* */ } }
+    });
   }
 
   /** Baca isi entri sebagai teks; onText(chunkText) dipanggil berurutan bila diberikan. */

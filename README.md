@@ -92,3 +92,7 @@ Pustaka pihak ketiga: Chart.js (MIT), ExcelJS (MIT), docx (MIT), font Poppins & 
 
 ### Mengaktifkan GitHub Pages / Enabling GitHub Pages
 Repo → **Settings → Pages → Build and deployment → Source: Deploy from a branch → Branch: main, folder: / (root) → Save.** Tunggu ±1 menit, lalu buka https://rochiki.github.io/vt-score/ . Setiap push ke main otomatis memperbarui aplikasi; pengguna cukup muat ulang (aplikasi memakai network-first, jadi versi terbaru terambil saat online).
+
+## v1.3.1 — Dukungan browser lama / Legacy-browser support
+**ID:** File Excel kini terbaca juga di browser lama (Chrome/Edge < 103, Firefox < 113, Safari < 16.4) lewat dekompresor JavaScript cadangan (fflate, MIT — lisensi di licenses/). Sebelumnya browser lama selalu gagal saat unggah .xlsx.
+**EN:** Excel files now also load on older browsers via a pure-JS fallback decompressor (fflate, MIT). Previously, older browsers always failed on .xlsx upload.
